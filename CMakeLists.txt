@@ -1,6 +1,7 @@
 cmake_minimum_required(VERSION 2.8.3)
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11 -O3")
 project(trajectory_selector)
+set(CMAKE_BUILD_TYPE Release)
 
 ## Find catkin macros and libraries
 ## if COMPONENTS list like find_package(catkin REQUIRED COMPONENTS xyz)
@@ -16,23 +17,26 @@ find_package(catkin REQUIRED COMPONENTS
   tf2
   cv_bridge
   image_transport
-  acl_fsw
+  #acl_fsw
   message_generation
   sensor_msgs
-  PCL REQUIRED
+  #PCL REQUIRED
   mavros_msgs
+  pcl_ros
+  eigen_catkin
+  quad_msgs
 )
 
 add_message_files( DIRECTORY msg FILES Coeff.msg State.msg )
 generate_messages( DEPENDENCIES std_msgs nav_msgs)
 
-find_package( Eigen3 REQUIRED )
-find_package(OpenCV 2.4.8 REQUIRED)
+#find_package( Eigen3 REQUIRED )
+#find_package(OpenCV 2.4.8 REQUIRED)
 
 include_directories ( src )
-include_directories( ${EIGEN3_INCLUDE_DIR} )
-include_directories(${PCL_INCLUDE_DIRS})
-link_directories(${PCL_LIBRARY_DIRS})
+#include_directories( ${EIGEN3_INCLUDE_DIR} )
+#include_directories(${PCL_INCLUDE_DIRS})
+#link_directories(${PCL_LIBRARY_DIRS})
 
 catkin_package(
 
@@ -51,4 +55,5 @@ add_library( trajectory_selector src/trajectory_selector.cpp src/trajectory_libr
 
 
 add_executable( trajectory_selector_node src/trajectory_selector_node.cpp )
-target_link_libraries( trajectory_selector_node trajectory_selector ${catkin_LIBRARIES} ${PCL_LIBRARIES} orocos-kdl)
+#target_link_libraries( trajectory_selector_node trajectory_selector ${catkin_LIBRARIES} ${PCL_LIBRARIES} orocos-kdl)
+target_link_libraries( trajectory_selector_node trajectory_selector ${catkin_LIBRARIES} orocos-kdl)

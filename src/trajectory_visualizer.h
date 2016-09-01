@@ -49,7 +49,7 @@ private:
 
 	void NormalizeCollisions();
 
-	std::string drawing_frame = "xtion_depth_optical_frame";
+	std::string drawing_frame = "hummingbird/vi_sensor/camera_depth_optical_center_link";
 
 	ros::NodeHandle nh;
 	ros::Publisher gaussian_pub;

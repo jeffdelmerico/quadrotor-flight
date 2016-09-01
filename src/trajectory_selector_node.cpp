@@ -2,8 +2,9 @@
 #include <nav_msgs/Path.h>
 #include <visualization_msgs/Marker.h>
 #include <sensor_msgs/PointCloud2.h>
-#include "geometry_msgs/PoseStamped.h"
-#include "geometry_msgs/TwistStamped.h"
+#include <nav_msgs/Odometry.h>
+//#include <geometry_msgs/PoseWithCovarianceStamped.h>
+//#include <geometry_msgs/TwistWithCovarianceStamped.h>
 #include <mavros_msgs/AttitudeTarget.h>
 #include <nav_msgs/OccupancyGrid.h>
 #include <sensor_msgs/PointCloud2.h>
@@ -28,6 +29,7 @@
 #include "attitude_generator.h"
 #include "trajectory_visualizer.h"
 
+#include <quad_msgs/AttitudeYawRateCommand.h>
 
 class TrajectorySelectorNode {
 public:
@@ -35,18 +37,20 @@ public:
 	TrajectorySelectorNode() {
 
 		// Subscribers
-		pose_sub = nh.subscribe("/samros/pose", 1, &TrajectorySelectorNode::OnPose, this);
-		velocity_sub = nh.subscribe("/samros/twist", 1, &TrajectorySelectorNode::OnVelocity, this);
+		gt_sub = nh.subscribe("/hummingbird/ground_truth/odometry", 1, &TrajectorySelectorNode::OnGT, this);
+		//pose_sub = nh.subscribe("/hummingbird/ground_truth/pose", 1, &TrajectorySelectorNode::OnPose, this);
+		//velocity_sub = nh.subscribe("/hummingbird/ground_truth/odometry/twist", 1, &TrajectorySelectorNode::OnVelocity, this);
 		//waypoints_sub = nh.subscribe("/waypoint_list", 1, &TrajectorySelectorNode::OnWaypoints, this);
   	    //depth_image_sub = nh.subscribe("/flight/xtion_depth/points", 1, &TrajectorySelectorNode::OnDepthImage, this);
   	    global_goal_sub = nh.subscribe("/move_base_simple/goal", 1, &TrajectorySelectorNode::OnGlobalGoal, this);
   	    //value_grid_sub = nh.subscribe("/value_grid", 1, &TrajectorySelectorNode::OnValueGrid, this);
-  	    //laser_scan_sub = nh.subscribe("/laserscan_to_pointcloud/cloud2_out", 1, &TrajectorySelectorNode::OnScan, this);
+  	    laser_scan_sub = nh.subscribe("/hummingbird/vi_sensor/camera_depth/depth/points", 1, &TrajectorySelectorNode::OnScan, this);
 
   	    // Publishers
 		carrot_pub = nh.advertise<visualization_msgs::Marker>( "carrot_marker", 0 );
 		gaussian_pub = nh.advertise<visualization_msgs::Marker>( "gaussian_visualization", 0 );
-		attitude_thrust_pub = nh.advertise<mavros_msgs::AttitudeTarget>("/mavros/setpoint_raw/attitude", 1);
+		//attitude_thrust_pub = nh.advertise<mavros_msgs::AttitudeTarget>("/mavros/setpoint_raw/attitude", 1);
+		attitude_thrust_pub = nh.advertise<quad_msgs::AttitudeYawRateCommand>("/hummingbird/attitude_yaw_rate_command", 1);
 		//attitude_setpoint_visualization_pub = nh.advertise<geometry_msgs::PoseStamped>("attitude_setpoint", 1);
 
 		// Initialization
@@ -70,7 +74,7 @@ public:
 		geometry_msgs::TransformStamped tf;
 	    try {
 
-	      tf = tf_buffer_.lookupTransform("world", "ortho_body", 
+	      tf = tf_buffer_.lookupTransform("world", "hummingbird/ortho_base_link", 
 	                                    ros::Time(0), ros::Duration(1.0/30.0));
 	    } catch (tf2::TransformException &ex) {
 	      ROS_ERROR("%s", ex.what());
@@ -123,12 +127,13 @@ private:
 	}
 
 	void PublishOrthoBodyTransform(double roll, double pitch) {
+    ROS_INFO("Publishing ortho_base_link transform.");
 		static tf2_ros::TransformBroadcaster br;
   		geometry_msgs::TransformStamped transformStamped;
   
 	    transformStamped.header.stamp = ros::Time::now();
-	    transformStamped.header.frame_id = "body";
-	    transformStamped.child_frame_id = "ortho_body";
+	    transformStamped.header.frame_id = "hummingbird/base_link";
+	    transformStamped.child_frame_id = "hummingbird/ortho_base_link";
 	    transformStamped.transform.translation.x = 0.0;
 	    transformStamped.transform.translation.y = 0.0;
 	    transformStamped.transform.translation.z = 0.0;
@@ -146,7 +151,7 @@ private:
 		geometry_msgs::TransformStamped tf;
 	    try {
 
-	      tf = tf_buffer_.lookupTransform("ortho_body", "world", 
+	      tf = tf_buffer_.lookupTransform("hummingbird/ortho_base_link", "world", 
 	                                    ros::Time(0), ros::Duration(1.0/30.0));
 	    } catch (tf2::TransformException &ex) {
 	      ROS_ERROR("%s", ex.what());
@@ -154,7 +159,7 @@ private:
 	    }
 
 	    geometry_msgs::PoseStamped pose_global_goal_world_frame = PoseFromVector3(carrot_world_frame, "world");
-	    geometry_msgs::PoseStamped pose_global_goal_ortho_body_frame = PoseFromVector3(Vector3(0,0,0), "ortho_body");
+	    geometry_msgs::PoseStamped pose_global_goal_ortho_body_frame = PoseFromVector3(Vector3(0,0,0), "hummingbird/ortho_base_link");
 	   
 	    tf2::doTransform(pose_global_goal_world_frame, pose_global_goal_ortho_body_frame, tf);
 	    carrot_ortho_body_frame = VectorFromPose(pose_global_goal_ortho_body_frame);
@@ -174,9 +179,16 @@ private:
 		}
 	}
 
+  void OnGT( nav_msgs::Odometry const& odom)
+  {
+    ROS_INFO("GOT ODOM");
+    OnPose(odom.pose);
+    OnVelocity(odom.twist);
+  }
 
-	void OnPose( geometry_msgs::PoseStamped const& pose ) {
-		//ROS_INFO("GOT POSE");
+
+	void OnPose( geometry_msgs::PoseWithCovariance const& pose ) {
+		ROS_INFO("GOT POSE");
 		attitude_generator.setZ(pose.pose.position.z);
 		
 		tf::Quaternion q(pose.pose.orientation.x, pose.pose.orientation.y, pose.pose.orientation.z, pose.pose.orientation.w);
@@ -217,14 +229,14 @@ private:
 	Vector3 transformOrthoBodyIntoLaserFrame(Vector3 const& ortho_body_vector) {
 		geometry_msgs::TransformStamped tf;
     	try {
-     		tf = tf_buffer_.lookupTransform("laser", "ortho_body", 
+     		tf = tf_buffer_.lookupTransform("hummingbird/vi_sensor/camera_depth_optical_center_link", "hummingbird/ortho_base_link", 
                                     ros::Time(0), ros::Duration(1/30.0));
    		} catch (tf2::TransformException &ex) {
      	 	ROS_ERROR("%s", ex.what());
       	return Vector3(0,0,0);
     	}
-    	geometry_msgs::PoseStamped pose_ortho_body_vector = PoseFromVector3(ortho_body_vector, "ortho_body");
-    	geometry_msgs::PoseStamped pose_vector_laser_frame = PoseFromVector3(Vector3(0,0,0), "laser");
+    	geometry_msgs::PoseStamped pose_ortho_body_vector = PoseFromVector3(ortho_body_vector, "hummingbird/ortho_base_link");
+    	geometry_msgs::PoseStamped pose_vector_laser_frame = PoseFromVector3(Vector3(0,0,0), "hummingbird/vi_sensor/camera_depth_optical_center_link");
     	tf2::doTransform(pose_ortho_body_vector, pose_vector_laser_frame, tf);
     	return VectorFromPose(pose_vector_laser_frame);
 	}
@@ -232,14 +244,14 @@ private:
 	Vector3 transformOrthoBodyIntoRDFFrame(Vector3 const& ortho_body_vector) {
 		geometry_msgs::TransformStamped tf;
     	try {
-     		tf = tf_buffer_.lookupTransform("xtion_depth_optical_frame", "ortho_body", 
+     		tf = tf_buffer_.lookupTransform("hummingbird/vi_sensor/camera_depth_optical_center_link", "hummingbird/ortho_base_link", 
                                     ros::Time(0), ros::Duration(1/30.0));
    		} catch (tf2::TransformException &ex) {
      	 	ROS_ERROR("%s", ex.what());
       	return Vector3(0,0,0);
     	}
-    	geometry_msgs::PoseStamped pose_ortho_body_vector = PoseFromVector3(ortho_body_vector, "ortho_body");
-    	geometry_msgs::PoseStamped pose_vector_rdf_frame = PoseFromVector3(Vector3(0,0,0), "xtion_depth_optical_frame");
+    	geometry_msgs::PoseStamped pose_ortho_body_vector = PoseFromVector3(ortho_body_vector, "hummingbird/ortho_base_link");
+    	geometry_msgs::PoseStamped pose_vector_rdf_frame = PoseFromVector3(Vector3(0,0,0), "hummingbird/vi_sensor/camera_depth_optical_center_link");
     	tf2::doTransform(pose_ortho_body_vector, pose_vector_rdf_frame, tf);
     	return VectorFromPose(pose_vector_rdf_frame);
 	}
@@ -247,7 +259,7 @@ private:
 	Vector3 TransformWorldToOrthoBody(Vector3 const& world_frame) {
 		geometry_msgs::TransformStamped tf;
 	    try {
-	      tf = tf_buffer_.lookupTransform("ortho_body", "world", 
+	      tf = tf_buffer_.lookupTransform("hummingbird/ortho_base_link", "world", 
 	                                    ros::Time(0), ros::Duration(1/30.0));
 	    } catch (tf2::TransformException &ex) {
 	      ROS_ERROR("%s", ex.what());
@@ -268,10 +280,10 @@ private:
 		}
 	}
 
-	void OnVelocity( geometry_msgs::TwistStamped const& twist) {
-		//ROS_INFO("GOT VELOCITY");
-		attitude_generator.setZvelocity(twist.twist.linear.z);
-		Vector3 velocity_world_frame(twist.twist.linear.x, twist.twist.linear.y, twist.twist.linear.z);
+	void OnVelocity( geometry_msgs::TwistWithCovariance const& twist_msg) {
+		ROS_INFO("GOT VELOCITY");
+		attitude_generator.setZvelocity(twist_msg.twist.linear.z);
+		Vector3 velocity_world_frame(twist_msg.twist.linear.x, twist_msg.twist.linear.y, twist_msg.twist.linear.z);
 		Vector3 velocity_ortho_body_frame = TransformWorldToOrthoBody(velocity_world_frame);
 		UpdateTrajectoryLibraryVelocity(velocity_ortho_body_frame);
 	}
@@ -283,7 +295,7 @@ private:
 	}
 
 	void OnScan(sensor_msgs::PointCloud2 const& laser_point_cloud_msg) {
-		//ROS_INFO("GOT SCAN");
+		ROS_INFO("GOT SCAN");
 		LaserScanCollisionEvaluator* laser_scan_collision_ptr = trajectory_selector.GetLaserScanCollisionEvaluatorPtr();
 
 		if (laser_scan_collision_ptr != nullptr) {
@@ -375,7 +387,7 @@ private:
 	        pose_frame_id = pose_frame_id.substr(1, pose_frame_id.size()-1);
 	      }
 
-	      tf = tf_buffer_.lookupTransform("ortho_body", pose_frame_id, 
+	      tf = tf_buffer_.lookupTransform("hummingbird/ortho_base_link", pose_frame_id, 
 	                                    ros::Time(0), ros::Duration(1/30.0));
 	    } catch (tf2::TransformException &ex) {
 	      ROS_ERROR("%s", ex.what());
@@ -383,7 +395,7 @@ private:
 	    }
 
 	    geometry_msgs::PoseStamped pose_carrot_world_frame = PoseFromVector3(carrot_world_frame, "world");
-	    geometry_msgs::PoseStamped pose_carrot_ortho_body_frame = PoseFromVector3(carrot_ortho_body_frame, "ortho_body");
+	    geometry_msgs::PoseStamped pose_carrot_ortho_body_frame = PoseFromVector3(carrot_ortho_body_frame, "hummingbird/ortho_base_link");
 	   
 	    tf2::doTransform(pose_carrot_world_frame, pose_carrot_ortho_body_frame, tf);
 
@@ -391,7 +403,7 @@ private:
 
 
 	    visualization_msgs::Marker marker;
-		marker.header.frame_id = "ortho_body";
+		marker.header.frame_id = "hummingbird/ortho_base_link";
 		marker.header.stamp = ros::Time::now();
 		marker.ns = "my_namespace";
 		marker.id = 0;
@@ -436,6 +448,7 @@ private:
 
 	void PublishAttitudeSetpoint(Vector3 const& roll_pitch_thrust) { 
 
+    /*
 		using namespace Eigen;
 
 		// Vector3 pid;
@@ -473,6 +486,16 @@ private:
 		setpoint_msg.thrust = roll_pitch_thrust(2);
 
 		attitude_thrust_pub.publish(setpoint_msg);
+    */
+
+    quad_msgs::AttitudeYawRateCommand setpoint_msg;
+		setpoint_msg.header.stamp = ros::Time::now();
+		setpoint_msg.execution_time = ros::Time::now();
+		setpoint_msg.roll = roll_pitch_thrust[0];
+		setpoint_msg.pitch = roll_pitch_thrust[1];
+    setpoint_msg.yawrate = 0.0;
+		setpoint_msg.thrust = roll_pitch_thrust[2];
+    attitude_thrust_pub.publish(setpoint_msg);
 
 		// To visualize setpoint
 
@@ -490,6 +513,7 @@ private:
 
 
 	ros::Subscriber waypoints_sub;
+	ros::Subscriber gt_sub;
 	ros::Subscriber pose_sub;
 	ros::Subscriber velocity_sub;
 	ros::Subscriber depth_image_sub;

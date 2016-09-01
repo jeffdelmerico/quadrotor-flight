@@ -1,3 +1,6 @@
 <launch>
+  <arg name="quad_name" default="hummingbird"/>
+  <group ns="$(arg quad_name)">
     <node pkg="trajectory_selector" type="trajectory_selector_node" name="trajectory_selector" output="screen"/>
+  </group>
 </launch>
