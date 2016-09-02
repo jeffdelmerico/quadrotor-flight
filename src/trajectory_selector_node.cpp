@@ -30,13 +30,21 @@
 #include "trajectory_visualizer.h"
 
 #include <quad_msgs/AttitudeYawRateCommand.h>
+#include <quad_msgs/QuadDesiredState.h>
+#include <quad_msgs/QuadStateEstimate.h>
+#include <quad_msgs/ControllerFeedback.h>
+#include <eigen_conversions/eigen_msg.h>
+#include <std_msgs/Bool.h>
 
 class TrajectorySelectorNode {
 public:
 
-	TrajectorySelectorNode() {
+	TrajectorySelectorNode() 
+    : go_(false), copilot_is_in_feedthrough(false)
+  {
 
 		// Subscribers
+    copilot_feedback_sub = nh.subscribe("/hummingbird/copilot/feedback", 10, &TrajectorySelectorNode::CopilotFeedbackCallback, this);
 		gt_sub = nh.subscribe("/hummingbird/ground_truth/odometry", 1, &TrajectorySelectorNode::OnGT, this);
 		//pose_sub = nh.subscribe("/hummingbird/ground_truth/pose", 1, &TrajectorySelectorNode::OnPose, this);
 		//velocity_sub = nh.subscribe("/hummingbird/ground_truth/odometry/twist", 1, &TrajectorySelectorNode::OnVelocity, this);
@@ -51,7 +59,9 @@ public:
 		gaussian_pub = nh.advertise<visualization_msgs::Marker>( "gaussian_visualization", 0 );
 		//attitude_thrust_pub = nh.advertise<mavros_msgs::AttitudeTarget>("/mavros/setpoint_raw/attitude", 1);
 		attitude_thrust_pub = nh.advertise<quad_msgs::AttitudeYawRateCommand>("/hummingbird/attitude_yaw_rate_command", 1);
+		desired_state_pub = nh.advertise<quad_msgs::QuadDesiredState>("/hummingbird/desired_state", 1);
 		//attitude_setpoint_visualization_pub = nh.advertise<geometry_msgs::PoseStamped>("attitude_setpoint", 1);
+    feedthrough_pub = nh.advertise<std_msgs::Bool>("/hummingbird/copilot/feedthrough", 1);
 
 		// Initialization
 		trajectory_selector.InitializeLibrary(final_time);
@@ -84,17 +94,30 @@ public:
 	}
 
 	void ReactToSampledPointCloud() {
+
+    if(!go_ || !copilot_is_in_feedthrough) return;
+
 		Vector3 desired_acceleration;
+		Vector3 desired_velocity;
+		Vector3 desired_position;
+    Vector3 desired_jerk;
+    Scalar traj_t = (ros::Time::now() - last_depth).toSec();
 
 		// uncomment for bearing control
 		//SetGoalFromBearing();
 		
 		auto t1 = std::chrono::high_resolution_clock::now();
-		trajectory_selector.computeBestEuclideanTrajectory(carrot_ortho_body_frame, best_traj_index, desired_acceleration);
+		trajectory_selector.computeBestEuclideanTrajectory(carrot_ortho_body_frame, 
+                                                       best_traj_index, 
+                                                       desired_acceleration, 
+                                                       desired_velocity, 
+                                                       desired_position,
+                                                       desired_jerk,
+                                                       traj_t);
 		auto t2 = std::chrono::high_resolution_clock::now();
-		std::cout << "Computing best traj took "
-    	  << std::chrono::duration_cast<std::chrono::microseconds>(t2-t1).count()
-      		<< " microseconds\n"; 
+		//std::cout << "Computing best traj took "
+    //	  << std::chrono::duration_cast<std::chrono::microseconds>(t2-t1).count()
+    // 		<< " microseconds\n"; 
 
       	Eigen::Matrix<Scalar, 25, 1> collision_probabilities = trajectory_selector.getCollisionProbabilities();
 		trajectory_visualizer.setCollisionProbabilities(collision_probabilities);
@@ -103,7 +126,8 @@ public:
 
 		SetThrustForLibrary(attitude_thrust_desired(2));
 
-		PublishAttitudeSetpoint(attitude_thrust_desired);
+    //PublishAttitudeSetpoint(attitude_thrust_desired);
+    PublishDesiredState(desired_acceleration, desired_velocity, desired_position, desired_jerk);
 	}
 
 private:
@@ -127,7 +151,7 @@ private:
 	}
 
 	void PublishOrthoBodyTransform(double roll, double pitch) {
-    ROS_INFO("Publishing ortho_base_link transform.");
+    //ROS_INFO("Publishing ortho_base_link transform.");
 		static tf2_ros::TransformBroadcaster br;
   		geometry_msgs::TransformStamped transformStamped;
   
@@ -163,6 +187,9 @@ private:
 	   
 	    tf2::doTransform(pose_global_goal_world_frame, pose_global_goal_ortho_body_frame, tf);
 	    carrot_ortho_body_frame = VectorFromPose(pose_global_goal_ortho_body_frame);
+      //ROS_WARN_STREAM("carrot_ortho_body_frame: " << carrot_ortho_body_frame << " dist: " << carrot_ortho_body_frame.norm());
+      if(carrot_ortho_body_frame.norm() < 0.5)
+        go_ = false;
 	}
 
 	void UpdateAttitudeGeneratorRollPitch(double roll, double pitch) {
@@ -181,14 +208,14 @@ private:
 
   void OnGT( nav_msgs::Odometry const& odom)
   {
-    ROS_INFO("GOT ODOM");
+    //ROS_INFO("GOT ODOM");
     OnPose(odom.pose);
     OnVelocity(odom.twist);
   }
 
 
 	void OnPose( geometry_msgs::PoseWithCovariance const& pose ) {
-		ROS_INFO("GOT POSE");
+		//ROS_INFO("GOT POSE");
 		attitude_generator.setZ(pose.pose.position.z);
 		
 		tf::Quaternion q(pose.pose.orientation.x, pose.pose.orientation.y, pose.pose.orientation.z, pose.pose.orientation.w);
@@ -281,7 +308,7 @@ private:
 	}
 
 	void OnVelocity( geometry_msgs::TwistWithCovariance const& twist_msg) {
-		ROS_INFO("GOT VELOCITY");
+		//ROS_INFO("GOT VELOCITY");
 		attitude_generator.setZvelocity(twist_msg.twist.linear.z);
 		Vector3 velocity_world_frame(twist_msg.twist.linear.x, twist_msg.twist.linear.y, twist_msg.twist.linear.z);
 		Vector3 velocity_ortho_body_frame = TransformWorldToOrthoBody(velocity_world_frame);
@@ -290,12 +317,29 @@ private:
 	
 	void OnGlobalGoal(geometry_msgs::PoseStamped const& global_goal) {
 		//ROS_INFO("GOT GLOBAL GOAL");
-		carrot_world_frame << global_goal.pose.position.x, global_goal.pose.position.y, global_goal.pose.position.z+1.0; 
+		//carrot_world_frame << global_goal.pose.position.x, global_goal.pose.position.y, global_goal.pose.position.z+1.0; 
+		carrot_world_frame << global_goal.pose.position.x, global_goal.pose.position.y, current_state.position.z; 
 		UpdateCarrotOrthoBodyFrame();
+
+    quad_msgs::QuadDesiredState msg;
+    msg.header.stamp = ros::Time::now();
+    msg.position = current_state.position;
+    msg.velocity = current_state.velocity;
+    tf::vectorEigenToMsg(Vector3::Zero(), msg.acceleration);
+    tf::vectorEigenToMsg(Vector3::Zero(), msg.jerk);
+    desired_state_pub.publish(msg);
+
+    ROS_WARN("[%s] Activating Feedthrough", ros::this_node::getName().c_str());
+    std_msgs::Bool feedthrough_msg;
+    feedthrough_msg.data = true;
+    feedthrough_pub.publish(feedthrough_msg);
+    go_ = true;
 	}
 
 	void OnScan(sensor_msgs::PointCloud2 const& laser_point_cloud_msg) {
-		ROS_INFO("GOT SCAN");
+		//ROS_INFO("GOT SCAN");
+    last_depth = ros::Time::now();
+    
 		LaserScanCollisionEvaluator* laser_scan_collision_ptr = trajectory_selector.GetLaserScanCollisionEvaluatorPtr();
 
 		if (laser_scan_collision_ptr != nullptr) {
@@ -424,6 +468,15 @@ private:
 	}
 
 
+  void CopilotFeedbackCallback(const quad_msgs::ControllerFeedbackConstPtr& msg)
+  {
+    current_state = msg->state_estimate;
+    if(msg->controller_state == 8) // feedthrough
+    {
+      copilot_is_in_feedthrough = true;
+    }
+  }
+
 
 	void OnDepthImage(const sensor_msgs::PointCloud2ConstPtr& point_cloud_msg) {
 		ROS_INFO("GOT POINT CLOUD");
@@ -444,8 +497,20 @@ private:
 	
 	}
 
+  void PublishDesiredState(Vector3 const& desired_acceleration, 
+                           Vector3 const& desired_velocity, 
+                           Vector3 const& desired_position, 
+                           Vector3 const& desired_jerk)
+  {
+    quad_msgs::QuadDesiredState msg;
+    msg.header.stamp = ros::Time::now();
+    tf::vectorEigenToMsg(desired_position, msg.position);
+    tf::vectorEigenToMsg(desired_velocity, msg.velocity);
+    tf::vectorEigenToMsg(desired_acceleration, msg.acceleration);
+    tf::vectorEigenToMsg(desired_jerk, msg.jerk);
+    desired_state_pub.publish(msg);
+  }
 	
-
 	void PublishAttitudeSetpoint(Vector3 const& roll_pitch_thrust) { 
 
     /*
@@ -520,11 +585,14 @@ private:
 	ros::Subscriber global_goal_sub;
 	ros::Subscriber value_grid_sub;
 	ros::Subscriber laser_scan_sub;
+	ros::Subscriber copilot_feedback_sub;
 
 	ros::Publisher carrot_pub;
 	ros::Publisher gaussian_pub;
 	ros::Publisher attitude_thrust_pub;
+	ros::Publisher desired_state_pub;
 	ros::Publisher attitude_setpoint_visualization_pub;
+  ros::Publisher feedthrough_pub;
 
 	std::vector<ros::Publisher> action_paths_pubs;
 
@@ -555,6 +623,10 @@ private:
 	TrajectorySelector trajectory_selector;
 	AttitudeGenerator attitude_generator;
 
+  bool go_;
+  bool copilot_is_in_feedthrough;
+  ros::Time last_depth;
+  quad_msgs::QuadStateEstimate current_state;
 
 	ros::NodeHandle nh;
 
@@ -572,7 +644,7 @@ int main(int argc, char* argv[]) {
 	TrajectorySelectorNode trajectory_selector_node;
 
 	std::cout << "Got through to here" << std::endl;
-	ros::Rate spin_rate(100);
+	ros::Rate spin_rate(50);
 
 	auto t1 = std::chrono::high_resolution_clock::now();
 	auto t2 = std::chrono::high_resolution_clock::now();

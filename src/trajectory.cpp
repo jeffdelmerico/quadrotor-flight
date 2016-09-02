@@ -75,6 +75,13 @@ Vector3 Trajectory::getTerminalStopPosition(Scalar const& t) const {
 
 }
 
+Vector3 Trajectory::getJerk(Scalar const& t) const
+{
+  if(t < jerk_time)
+    return jerk;
+  else
+    return Vector3::Zero();
+}
 
 void Trajectory::setAccelerationLASER(Vector3 const& acceleration_laser) {
   this->acceleration_laser = acceleration_laser;

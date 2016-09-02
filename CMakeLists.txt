@@ -25,6 +25,7 @@ find_package(catkin REQUIRED COMPONENTS
   pcl_ros
   eigen_catkin
   quad_msgs
+  eigen_conversions
 )
 
 add_message_files( DIRECTORY msg FILES Coeff.msg State.msg )

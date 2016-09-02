@@ -30,7 +30,13 @@ public:
   void InitializeLibrary(double const& final_time);
   size_t getNumTrajectories();
   
-  void computeBestEuclideanTrajectory(Vector3 const& carrot_body_frame, size_t &best_traj_index, Vector3 &desired_acceleration);
+  void computeBestEuclideanTrajectory(Vector3 const& carrot_body_frame, 
+                                      size_t &best_traj_index, 
+                                      Vector3& desired_acceleration,
+                                      Vector3& desired_velocity,
+                                      Vector3& desired_position,
+                                      Vector3& desired_jerk,
+                                      Scalar const& t);
   
   void computeBestDijkstraTrajectory(Vector3 const& carrot_body_frame, Vector3 const& carrot_world_frame, geometry_msgs::TransformStamped const& tf, size_t &best_traj_index, Vector3 &desired_acceleration);
 
@@ -90,7 +96,7 @@ private:
   Eigen::Matrix<Scalar, 25, 1> objectives_dijkstra;
   Eigen::Matrix<Scalar, 25, 1> objectives_euclid;
 
-  double soft_top_speed = 5.0;
+  double soft_top_speed = 1.0; //5.0;
 
 
 

@@ -3,4 +3,5 @@
   <group ns="$(arg quad_name)">
     <node pkg="trajectory_selector" type="trajectory_selector_node" name="trajectory_selector" output="screen"/>
   </group>
+  <node pkg="rviz" name="rviz" type="rviz" />
 </launch>

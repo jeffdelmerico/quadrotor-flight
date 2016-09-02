@@ -17,7 +17,7 @@ public:
   Trajectory(Vector3 acceleration, Vector3 initial_velocity) {
   	this->acceleration = acceleration;
   	this->initial_velocity = initial_velocity; 
-  	std::cout << "I'm initializing trajecotories " << std::endl;
+  	std::cout << "I'm initializing trajectories " << std::endl;
   };
 
 
@@ -32,6 +32,7 @@ public:
   Vector3 getInitialVelocity() const;
   Vector3 getPosition(Scalar const& t) const;
   Vector3 getTerminalStopPosition(Scalar const& t) const;
+  Vector3 getJerk(Scalar const& t) const;
 
   void setAccelerationLASER(Vector3 const& acceleration_laser);
   void setInitialAccelerationLASER(Vector3 const& initial_acceleration_laser);

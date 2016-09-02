@@ -44,7 +44,14 @@ size_t TrajectorySelector::getNumTrajectories() {
 
 
 // Euclidean Evaluator
-void TrajectorySelector::computeBestEuclideanTrajectory(Vector3 const& carrot_body_frame, size_t &best_traj_index, Vector3 &desired_acceleration) {
+void TrajectorySelector::computeBestEuclideanTrajectory(Vector3 const& carrot_body_frame, 
+                                                        size_t &best_traj_index, 
+                                                        Vector3& desired_acceleration,
+                                                        Vector3& desired_velocity,
+                                                        Vector3& desired_position,
+                                                        Vector3& desired_jerk,
+                                                        Scalar const& t) 
+{
   EvaluateCollisionProbabilities();
   EvaluateGoalProgress(carrot_body_frame); 
   EvaluateTerminalVelocityCost();
@@ -61,7 +68,11 @@ void TrajectorySelector::computeBestEuclideanTrajectory(Vector3 const& carrot_bo
       best_traj_objective_value = current_objective_value;
     }
   }
-  desired_acceleration = trajectory_library.getTrajectoryFromIndex(best_traj_index).getAcceleration();
+  Trajectory traj = trajectory_library.getTrajectoryFromIndex(best_traj_index);
+  desired_acceleration = traj.getAcceleration();
+  desired_velocity = traj.getVelocity(t);
+  desired_position = traj.getPosition(t);
+  desired_jerk = traj.getJerk(t);
 };
 
 void TrajectorySelector::EvaluateObjectivesEuclid() {
